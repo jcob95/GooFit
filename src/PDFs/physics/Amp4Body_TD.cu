@@ -91,6 +91,25 @@ struct exp_functor {
     }
 };
 
+  //additional functors used for calculating the integral
+struct get_pdf_val {
+  __host__ __device__ fptype operator()(thrust::tuple<fptype,fptype,fptype,fptype> t){
+    fptype pdf_val = thrust::get<0>(t);
+    return pdf_val;
+  }
+  
+};
+
+struct get_norm_pdf_weight{
+  fptype wmax;
+  __host__ __device__ get_norm_pdf_weight(fptype _wmax)
+    : wmax(_wmax){};
+  __host__ __device__ fptype operator()(fptype pdf_val){
+    return (fptype)(pdf_val/wmax);
+  }
+};
+
+
 // The function of this array is to hold all the cached waves; specific
 // waves are recalculated when the corresponding resonance mass or width
 // changes. Note that in a multithread environment each thread needs its
@@ -105,6 +124,7 @@ First entries are the starting points in array, necessary, because number of Lin
 // __constant__ unsigned int AmpIndices_TD[100];
 
 // This function gets called by the GooFit framework to get the value of the PDF.
+//must increase the event size to at least 9 where the additional element is the per-event efficiency
 __device__ fptype device_Amp4Body_TD(fptype *evt, ParameterContainer &pc) {
     // printf("DalitzPlot evt %i zero: %i %i %f (%f, %f).\n", evtNum, numResonances, effFunctionIdx, eff, totalAmp.real,
     // totalAmp.imag);
@@ -158,14 +178,15 @@ __device__ fptype device_Amp4Body_TD(fptype *evt, ParameterContainer &pc) {
 
     int id_time  = pc.getObservable(6);
     int id_sigma = pc.getObservable(7);
-
+    int id_event_efficiency = pc.getObservable(8);
+    
     fptype _tau          = pc.getParameter(0);
     fptype _xmixing      = pc.getParameter(1);
     fptype _ymixing      = pc.getParameter(2);
     fptype _SqWStoRSrate = pc.getParameter(3);
     fptype _time         = RO_CACHE(evt[id_time]);
     fptype _sigma        = RO_CACHE(evt[id_sigma]);
-
+    fptype _event_efficiency = RO_CACHE(evt[id_event_efficiency]);
     AmpA *= _SqWStoRSrate;
     /*printf("%i read time: %.5g x: %.5g y: %.5g \n",evtNum, _time, _xmixing, _ymixing);*/
 
@@ -195,8 +216,10 @@ __device__ fptype device_Amp4Body_TD(fptype *evt, ParameterContainer &pc) {
     // efficiency function?
     fptype eff = callFunction(evt, pc);
     /*printf("%i result %.7g, eff %.7g\n",evtNum, ret, eff);*/
-
+					
     ret *= eff;
+					//multiply by the per event efficiency weight
+    ret *= _event_efficiency;
     /*printf("in prob: %f\n", ret);*/
     return ret;
 }
@@ -393,7 +416,8 @@ __host__ Amp4Body_TD::Amp4Body_TD(std::string n,
 
     if(mistag) {
         registerObservable(*mistag);
-        totalEventSize = 9;
+	//we now have per event efficiencies to add
+        totalEventSize = 10;
         // TODO: This needs to be registered later!
         // registerConstant(1); // Flags existence of mistag
     }
@@ -405,7 +429,7 @@ __host__ Amp4Body_TD::Amp4Body_TD(std::string n,
 
     initialize();
 
-    Integrator   = new NormIntegrator_TD();
+    Integrator   = new NormIntegrator_TD(specialIntegral);
     redoIntegral = new bool[LineShapes.size()];
     cachedMasses = new fptype[LineShapes.size()];
     cachedWidths = new fptype[LineShapes.size()];
@@ -464,6 +488,22 @@ __host__ Amp4Body_TD::Amp4Body_TD(std::string n,
     norm_CosTheta12 = mcbooster::RealVector_d(nAcc);
     norm_CosTheta34 = mcbooster::RealVector_d(nAcc);
     norm_phi        = mcbooster::RealVector_d(nAcc);
+    //store our decay time vector
+    norm_dtime = mcbooster::RealVector_d(nAcc);
+    //efficiency weight from BDT for the normalisation events
+    norm_eff = mcbooster::RealVector_d(nAcc);
+    //weight associated from the pdf value in place of an accept-reject
+    norm_pdf_weight = mcbooster::RealVector_d(nAcc);
+    //weight from importance sampling
+    norm_importance_weight = mcbooster::RealVector_d(nAcc);
+
+    //fill the normalisation decay times with zero initially to calculate the value of the PDF at t=0
+    thrust::fill(norm_dtime.begin(),norm_dtime.end(),0.);
+    //fill the normalisation weights with 1
+    thrust::fill(norm_pdf_weight.begin(),norm_pdf_weight.end(),1.);
+    thrust::fill(norm_importance_weight.begin(),norm_importance_weight.end(),1.);
+    //fill the normalisation vectors with ones to avoid any errors involving multiplying by 0
+    thrust::fill(norm_eff.begin(),norm_eff.end(),1.);
 
     mcbooster::VariableSet_d VarSet(5);
     VarSet[0] = &norm_M12;
@@ -685,7 +725,7 @@ __host__ fptype Amp4Body_TD::normalize() {
         thrust::tuple<fptype, fptype, fptype, fptype> sumIntegral;
 
         Integrator->setDalitzId(getFunctionIndex());
-
+	/*
         sumIntegral = thrust::transform_reduce(
             thrust::make_zip_iterator(thrust::make_tuple(eventIndex, NumNormEvents, normSFaddress, normLSaddress)),
             thrust::make_zip_iterator(
@@ -693,7 +733,13 @@ __host__ fptype Amp4Body_TD::normalize() {
             *Integrator,
             dummy,
             MyFourDoubleTupleAdditionFunctor);
+	*/
 
+	sumIntegral = thrust::transform_reduce(
+					       thrust::make_zip_iterator(thrust::make_tuple(eventIndex, NumNormEvents, normSFaddress, normLSaddress,norm_dtime.begin(),norm_eff.begin(),norm_pdf_weight.begin(),norm_importance_weight.begin())),thrust::make_zip_iterator(thrust::make_tuple(eventIndex + MCevents, NumNormEvents, normSFaddress, normLSaddress,norm_dtime.end(),norm_eff.end(),norm_pdf_weight.end(),norm_importance_weight.end())),
+					       *Integrator,                                        
+					       dummy,                                             
+					       MyFourDoubleTupleAdditionFunctor);    
         // GOOFIT_TRACE("sumIntegral={}", sumIntegral);
 
         // printf("normalize A2/#evts , B2/#evts: %.5g, %.5g\n",thrust::get<0>(sumIntegral)/MCevents,
@@ -701,17 +747,28 @@ __host__ fptype Amp4Body_TD::normalize() {
         fptype tau     = parametersList[0];
         fptype xmixing = parametersList[1];
         fptype ymixing = parametersList[2];
-
-        ret = resolution->normalization(thrust::get<0>(sumIntegral),
-                                        thrust::get<1>(sumIntegral),
-                                        thrust::get<2>(sumIntegral),
-                                        thrust::get<3>(sumIntegral),
-                                        tau,
-                                        xmixing,
-                                        ymixing);
-
+	
+	if(specialIntegral){
+	  const double uniformNorm = 1.;
+	  //const double uniformNorm = 3.26 - 0.18;
+	  ret = thrust::get<0>(sumIntegral) * uniformNorm;
+	    
+	}
+	else{
+	  ret = resolution->normalization(thrust::get<0>(sumIntegral),
+					  thrust::get<1>(sumIntegral),
+					  thrust::get<2>(sumIntegral),
+					  thrust::get<3>(sumIntegral),
+					  tau,
+					  xmixing,
+					  ymixing);
+	}
         // MCevents is the number of normalization events.
         ret /= MCevents;
+	if(specialIntegral){
+	  printf("normalizatio value:%.7g ",ret);
+	}
+        
     }
 
     host_normalizations[normalIdx + 1] = 1.0 / ret;
