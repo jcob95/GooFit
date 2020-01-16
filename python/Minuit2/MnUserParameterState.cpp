@@ -13,6 +13,7 @@ using namespace ROOT::Minuit2;
 
 void init_MnUserParameterState(py::module &m) {
     py::class_<MnUserParameterState>(m, "MnUserParameterState")
+        .def("CovarianceStatus",&MnUserParameterState::CovarianceStatus)
         .def("Value", (double (MnUserParameterState::*)(unsigned int) const) & MnUserParameterState::Value, "n"_a)
         .def("Error", (double (MnUserParameterState::*)(unsigned int) const) & MnUserParameterState::Error, "n"_a);
 }
