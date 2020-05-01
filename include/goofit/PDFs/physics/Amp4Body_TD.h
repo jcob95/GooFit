@@ -28,7 +28,7 @@ class SFCalculator_TD;
 class NormIntegrator_TD;
 class Lineshape;
 
-class Amp4Body_TD : public Amp4BodyBase {
+class Amp4Body_TD final : public Amp4BodyBase {
   public:
     Amp4Body_TD(std::string n,
                 std::vector<Observable> observables,
@@ -36,7 +36,8 @@ class Amp4Body_TD : public Amp4BodyBase {
                 MixingTimeResolution *r,
                 GooPdf *eff,
                 Observable *mistag,
-                unsigned int MCeventsNorm = 5e6);
+		long normSeed,
+                unsigned int MCeventsNorm);
     // Note that 'efficiency' refers to anything which depends on (m12, m13) and multiplies the
     // coherent sum. The caching method requires that it be done this way or the ProdPdf
     // normalization will get *really* confused and give wrong answers.
@@ -44,8 +45,8 @@ class Amp4Body_TD : public Amp4BodyBase {
     __host__ fptype normalize() override;
 
     __host__ void setDataSize(unsigned int dataSize, unsigned int evtSize = 8);
-    __host__ void setForceIntegrals(bool f = true) { forceRedoIntegrals = f; }
-    __host__ int getMCevents() { return MCevents; }
+    __host__ void setForceIntegrals(bool f = true) { _forceRedoIntegrals = f; }
+    __host__ int getNumAccNormEvents() const { return _nAcc_Norm_Events; } 
     __host__ void setGenerationOffset(int off) { generation_offset = off; }
     __host__ void setMaxWeight(fptype wmax) { maxWeight = wmax; }
 
@@ -116,18 +117,31 @@ class Amp4Body_TD : public Amp4BodyBase {
     __host__ void set_special_integral(bool special){
       specialIntegral = special;
     }
+
+    void printAmpMappings() const;
+
+    void printSelectedLineshapes(const std::vector<unsigned int>& lsIndices) const;
+
+    void printSelectedSFs(const std::vector<unsigned int>& sfIndices) const;
+
   protected:
   private:
-    std::map<std::string, std::pair<std::vector<unsigned int>, std::vector<unsigned int>>> AmpMap;
-    std::map<std::string, unsigned int> compMap;
-    // std::map<unsigned int, unsigned int> massmap;
-    std::map<std::string, unsigned int> SpinMap;
-    std::vector<SpinFactor *> SpinFactors;
-    std::vector<Lineshape *> LineShapes;
-    std::vector<AmpCalc_TD *> AmpCalcs;
-    NormIntegrator_TD *Integrator;
-    std::vector<SFCalculator_TD *> sfcalculators;
-    std::vector<LSCalculator_TD *> lscalculators;
+    __host__ void computeCachedNormValues(const std::vector<bool>& lineshapeChanged);
+
+    __host__ void computeCachedValues(const std::vector<bool>& lineshapeChanged, const std::vector<bool>& amplitudeComponentChanged);
+
+    __host__ std::vector<bool> areLineshapesChanged() const;
+
+    __host__ std::vector<bool> areAmplitudeComponentsChanged() const;
+
+    __host__ void generateAndSetNormEvents();
+
+    std::vector<SpinFactor *> _SpinFactors;
+    std::vector<Lineshape *> _LineShapes;
+    std::vector<AmpCalc_TD *> _AmpCalcs;
+    NormIntegrator_TD *_Integrator;
+    std::vector<SFCalculator_TD *> _sfcalculators;
+    std::vector<LSCalculator_TD *> _lscalculators;
 
     unsigned int efficiencyFunction;
 
@@ -139,8 +153,8 @@ class Amp4Body_TD : public Amp4BodyBase {
     mcbooster::RealVector_d norm_phi;
     mcbooster::RealVector_d norm_dtime;
     // store spin and lineshape values for normalization
-    mutable mcbooster::RealVector_d norm_SF;
-    mutable mcbooster::mc_device_vector<fpcomplex> norm_LS;
+    mutable mcbooster::RealVector_d _norm_SF;
+    mutable mcbooster::mc_device_vector<fpcomplex> _norm_LS;
 
     //efficiency weight given by BDT
     mcbooster::RealVector_d norm_eff;
@@ -151,7 +165,7 @@ class Amp4Body_TD : public Amp4BodyBase {
 
     DecayInfo4t decayInfo;
     MixingTimeResolution *resolution;
-    int MCevents;
+    int _nAcc_Norm_Events;
     // Following variables are useful if masses and widths, involved in difficult BW calculation,
     // change infrequently while amplitudes, only used in adding BW results together, change rapidly.
     thrust::device_vector<fpcomplex> *cachedResSF{nullptr}; // Caches the BW values and Spins for each event.
@@ -167,6 +181,9 @@ class Amp4Body_TD : public Amp4BodyBase {
     int cacheToUse{0};
     unsigned int generation_offset{0};
     double maxWeight{0};
+    unsigned int _NUM_AMPLITUDES;
+    const long _NORM_SEED;
+    const int _NUM_NORM_EVENTS_TO_GEN;
 };
 
 } // namespace GooFit
