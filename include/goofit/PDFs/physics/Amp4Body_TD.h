@@ -56,29 +56,29 @@ class Amp4Body_TD final : public Amp4BodyBase {
 
     __host__ void populateArrays() override;
     __host__ mcbooster::RealVector_h get_norm_m12(){
-      auto host_norm_m12 = mcbooster::RealVector_h(norm_M12);
+      auto host_norm_m12 = mcbooster::RealVector_h(_norm_M12);
       return host_norm_m12;
     }
     __host__ mcbooster::RealVector_h get_norm_m34()
     {
-      auto host_norm_m34 = mcbooster::RealVector_h(norm_M34);
+      auto host_norm_m34 = mcbooster::RealVector_h(_norm_M34);
       return host_norm_m34;
     }
     __host__ mcbooster::RealVector_h get_norm_c12(){
-      auto host_norm_c12 = mcbooster::RealVector_h(norm_CosTheta12);
+      auto host_norm_c12 = mcbooster::RealVector_h(_norm_CosTheta12);
       return host_norm_c12;
     }
     __host__ mcbooster::RealVector_h get_norm_c34(){
-      auto host_norm_c34 = mcbooster::RealVector_h(norm_CosTheta34);
+      auto host_norm_c34 = mcbooster::RealVector_h(_norm_CosTheta34);
       return host_norm_c34;
     }
     __host__ mcbooster::RealVector_h get_norm_phi(){
-      auto host_norm_phi = mcbooster::RealVector_h(norm_phi);
+      auto host_norm_phi = mcbooster::RealVector_h(_norm_phi);
       return host_norm_phi;
     }
 
     __host__ mcbooster::RealVector_h get_norm_dtime(){
-      auto host_norm_dtime = mcbooster::RealVector_h(norm_dtime);
+      auto host_norm_dtime = mcbooster::RealVector_h(_norm_dtime);
       return host_norm_dtime;
     }
     __host__ mcbooster::RealVector_h get_norm_eff(){
@@ -97,7 +97,7 @@ class Amp4Body_TD final : public Amp4BodyBase {
     }
 
     __host__ void set_norm_dtime(mcbooster::RealVector_h norm_dtime_h){
-      norm_dtime = norm_dtime_h;
+      _norm_dtime = norm_dtime_h;
     }
        
     __host__ void set_norm_eff(mcbooster::RealVector_h norm_eff_h){
@@ -146,12 +146,12 @@ class Amp4Body_TD final : public Amp4BodyBase {
     unsigned int efficiencyFunction;
 
     // store normalization events
-    mcbooster::RealVector_d norm_M12;
-    mcbooster::RealVector_d norm_M34;
-    mcbooster::RealVector_d norm_CosTheta12;
-    mcbooster::RealVector_d norm_CosTheta34;
-    mcbooster::RealVector_d norm_phi;
-    mcbooster::RealVector_d norm_dtime;
+    mcbooster::RealVector_d _norm_M12;
+    mcbooster::RealVector_d _norm_M34;
+    mcbooster::RealVector_d _norm_CosTheta12;
+    mcbooster::RealVector_d _norm_CosTheta34;
+    mcbooster::RealVector_d _norm_phi;
+    mcbooster::RealVector_d _norm_dtime;
     // store spin and lineshape values for normalization
     mutable mcbooster::RealVector_d _norm_SF;
     mutable mcbooster::mc_device_vector<fpcomplex> _norm_LS;
@@ -163,21 +163,21 @@ class Amp4Body_TD final : public Amp4BodyBase {
     //weights from Importance Sampling stays constant throughout 
     mcbooster::RealVector_d norm_importance_weight;
 
-    DecayInfo4t decayInfo;
+    DecayInfo4t _decayInfo;
     MixingTimeResolution *resolution;
     int _nAcc_Norm_Events;
     // Following variables are useful if masses and widths, involved in difficult BW calculation,
     // change infrequently while amplitudes, only used in adding BW results together, change rapidly.
-    thrust::device_vector<fpcomplex> *cachedResSF{nullptr}; // Caches the BW values and Spins for each event.
-    thrust::device_vector<fpcomplex> *cachedAMPs{nullptr};  // cache Amplitude values for each event.
+    thrust::device_vector<fpcomplex> *_cachedResSF{nullptr}; // Caches the BW values and Spins for each event.
+    thrust::device_vector<fpcomplex> *_cachedAMPs{nullptr};  // cache Amplitude values for each event.
     mutable bool specialIntegral{true};
-    mutable bool generation_no_norm{false};
-    mutable bool SpinsCalculated{false};
+    mutable bool _generation_no_norm{false};
+    mutable bool _SpinsCalculated{false};
     bool *redoIntegral;
-    mutable bool forceRedoIntegrals{true};
+    mutable bool _forceRedoIntegrals{true};
     fptype *cachedMasses;
     fptype *cachedWidths;
-    int totalEventSize;
+    int _totalEventSize;
     int cacheToUse{0};
     unsigned int generation_offset{0};
     double maxWeight{0};

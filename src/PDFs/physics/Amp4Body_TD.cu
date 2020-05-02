@@ -478,7 +478,7 @@ __host__ Amp4Body_TD::Amp4Body_TD(std::string n,
     if(mistag) {
         registerObservable(*mistag);
 	//we now have per event efficiencies to add
-        totalEventSize = 10;
+        _totalEventSize = 10;
         // TODO: This needs to be registered later!
         // registerConstant(1); // Flags existence of mistag
     }
@@ -490,13 +490,13 @@ __host__ Amp4Body_TD::Amp4Body_TD(std::string n,
 
     initialize();
 
-    Integrator   = new NormIntegrator_TD(specialIntegral);
-    redoIntegral = new bool[LineShapes.size()];
-    cachedMasses = new fptype[LineShapes.size()];
-    cachedWidths = new fptype[LineShapes.size()];
+    _Integrator   = new NormIntegrator_TD(specialIntegral);
+    redoIntegral = new bool[_LineShapes.size()];
+    cachedMasses = new fptype[_LineShapes.size()];
+    cachedWidths = new fptype[_LineShapes.size()];
 
-    for(int i = 0; i < LineShapes.size(); i++) {
-        lscalculators.push_back(new LSCalculator_TD());
+    for(int i = 0; i < _LineShapes.size(); i++) {
+        _lscalculators.push_back(new LSCalculator_TD());
     }
 
     MEMCPY_TO_SYMBOL(
@@ -526,41 +526,46 @@ __host__ Amp4Body_TD::Amp4Body_TD(std::string n,
     generateAndSetNormEvents();
     _norm_SF  = mcbooster::RealVector_d(_nAcc_Norm_Events * _SpinFactors.size());
     _norm_LS  = mcbooster::mc_device_vector<fpcomplex>(_nAcc_Norm_Events * _LineShapes.size());
-
+    //the phase space variables should be set by generate and set norm events
+    /*
     mcbooster::ParticlesSet_d pset(4);
     pset[0] = &d1;
     pset[1] = &d2;
     pset[2] = &d3;
     pset[3] = &d4;
 
-    norm_M12        = mcbooster::RealVector_d(nAcc);
-    norm_M34        = mcbooster::RealVector_d(nAcc);
-    norm_CosTheta12 = mcbooster::RealVector_d(nAcc);
-    norm_CosTheta34 = mcbooster::RealVector_d(nAcc);
-    norm_phi        = mcbooster::RealVector_d(nAcc);
+    _norm_M12        = mcbooster::RealVector_d(nAcc);
+    _norm_M34        = mcbooster::RealVector_d(nAcc);
+    _norm_CosTheta12 = mcbooster::RealVector_d(nAcc);
+    _norm_CosTheta34 = mcbooster::RealVector_d(nAcc);
+    _norm_phi        = mcbooster::RealVector_d(nAcc);
+
+    mcbooster::VariableSet_d VarSet(5);
+    VarSet[0] = &_norm_M12;
+    VarSet[1] = &_norm_M34;
+    VarSet[2] = &_norm_CosTheta12;
+    VarSet[3] = &_norm_CosTheta34;
+    VarSet[4] = &_norm_phi;
+    */
+    //initialise our additional normalisation information
+    // TODO add this to the setAndGenerateNormEvents function
     //store our decay time vector
-    norm_dtime = mcbooster::RealVector_d(nAcc);
+    _norm_dtime = mcbooster::RealVector_d(_nAcc_Norm_Events);
     //efficiency weight from BDT for the normalisation events
-    norm_eff = mcbooster::RealVector_d(nAcc);
+    norm_eff = mcbooster::RealVector_d(_nAcc_Norm_Events);
     //weight associated from the pdf value in place of an accept-reject
-    norm_pdf_weight = mcbooster::RealVector_d(nAcc);
+    norm_pdf_weight = mcbooster::RealVector_d(_nAcc_Norm_Events);
     //weight from importance sampling
-    norm_importance_weight = mcbooster::RealVector_d(nAcc);
+    norm_importance_weight = mcbooster::RealVector_d(_nAcc_Norm_Events);
 
     //fill the normalisation decay times with zero initially to calculate the value of the PDF at t=0
-    thrust::fill(norm_dtime.begin(),norm_dtime.end(),0.);
+    thrust::fill(_norm_dtime.begin(),_norm_dtime.end(),0.);
     //fill the normalisation weights with 1
     thrust::fill(norm_pdf_weight.begin(),norm_pdf_weight.end(),1.);
     thrust::fill(norm_importance_weight.begin(),norm_importance_weight.end(),1.);
     //fill the normalisation vectors with ones to avoid any errors involving multiplying by 0
     thrust::fill(norm_eff.begin(),norm_eff.end(),1.);
-
-    mcbooster::VariableSet_d VarSet(5);
-    VarSet[0] = &norm_M12;
-    VarSet[1] = &norm_M34;
-    VarSet[2] = &norm_CosTheta12;
-    VarSet[3] = &norm_CosTheta34;
-    VarSet[4] = &norm_phi;
+    
     setSeparateNorm();
 
     printAmpMappings();
@@ -896,99 +901,61 @@ __host__ fptype Amp4Body_TD::normalize()
 
     _Integrator->setDalitzId(getFunctionIndex());
 
+    //original way of doing things
+    /*
     sumIntegral = thrust::transform_reduce(
 					   thrust::make_zip_iterator(thrust::make_tuple(eventIndex, NumNormEvents, normSFaddress, normLSaddress)),
 					   thrust::make_zip_iterator(
 								     thrust::make_tuple(eventIndex + _nAcc_Norm_Events, NumNormEvents, normSFaddress, normLSaddress)),
 					   *_Integrator,
 					   dummy,
-					   MyFourDoubleTupleAdditionFunctor);
-
-    thrust::constant_iterator<fptype *> normSFaddress(thrust::raw_pointer_cast(norm_SF.data()));
-    thrust::constant_iterator<fpcomplex *> normLSaddress(thrust::raw_pointer_cast(norm_LS.data()));
-    thrust::constant_iterator<int> NumNormEvents(MCevents);
-
-    // this does the rest of the integration with the cached lineshape and spinfactor values for the normalization
-    // events
-    auto ret = 1.0;
-
-    if(!generation_no_norm) {
-        thrust::tuple<fptype, fptype, fptype, fptype> dummy(0, 0, 0, 0);
-        FourDblTupleAdd MyFourDoubleTupleAdditionFunctor;
-        thrust::tuple<fptype, fptype, fptype, fptype> sumIntegral;
-
-        Integrator->setDalitzId(getFunctionIndex());
-	/*
-        sumIntegral = thrust::transform_reduce(
-            thrust::make_zip_iterator(thrust::make_tuple(eventIndex, NumNormEvents, normSFaddress, normLSaddress)),
-            thrust::make_zip_iterator(
-                thrust::make_tuple(eventIndex + MCevents, NumNormEvents, normSFaddress, normLSaddress)),
-            *Integrator,
-            dummy,
-            MyFourDoubleTupleAdditionFunctor);
-	*/
-
-	sumIntegral = thrust::transform_reduce(
-					       thrust::make_zip_iterator(thrust::make_tuple(eventIndex, NumNormEvents, normSFaddress, normLSaddress,norm_dtime.begin(),norm_eff.begin(),norm_pdf_weight.begin(),norm_importance_weight.begin())),thrust::make_zip_iterator(thrust::make_tuple(eventIndex + MCevents, NumNormEvents, normSFaddress, normLSaddress,norm_dtime.end(),norm_eff.end(),norm_pdf_weight.end(),norm_importance_weight.end())),
-					       *Integrator,                                        
-					       dummy,                                             
-					       MyFourDoubleTupleAdditionFunctor);    
+             MyFourDoubleTupleAdditionFunctor);
+    */
+    //modified method of integrating using efficieny, importance sampling etc.        
+    sumIntegral = thrust::transform_reduce(
+                  thrust::make_zip_iterator(thrust::make_tuple(eventIndex, NumNormEvents, normSFaddress, normLSaddress,_norm_dtime.begin(),norm_eff.begin(),norm_pdf_weight.begin(),norm_importance_weight.begin())),thrust::make_zip_iterator(thrust::make_tuple(eventIndex + _nAcc_Norm_Events, NumNormEvents, normSFaddress, normLSaddress,_norm_dtime.end(),norm_eff.end(),norm_pdf_weight.end(),norm_importance_weight.end())),
+                  *_Integrator,                                        
+                  dummy,                                             
+                  MyFourDoubleTupleAdditionFunctor);    
         // GOOFIT_TRACE("sumIntegral={}", sumIntegral);
 
         // printf("normalize A2/#evts , B2/#evts: %.5g, %.5g\n",thrust::get<0>(sumIntegral)/MCevents,
         // thrust::get<1>(sumIntegral)/MCevents);
-        fptype tau     = parametersList[0];
-        fptype xmixing = parametersList[1];
-        fptype ymixing = parametersList[2];
-	
-	if(specialIntegral){
-	  const double uniformNorm = 1.;
-	  //const double uniformNorm = 3.26 - 0.18;
-	  ret = thrust::get<0>(sumIntegral) * uniformNorm;
-	    
-	}
-	else{
-	  ret = resolution->normalization(thrust::get<0>(sumIntegral),
-					  thrust::get<1>(sumIntegral),
-					  thrust::get<2>(sumIntegral),
-					  thrust::get<3>(sumIntegral),
-					  tau,
-					  xmixing,
-					  ymixing);
-	}
-        // MCevents is the number of normalization events.
-        ret /= MCevents;
-	if(specialIntegral){
-	  printf("normalizatio value:%.7g ",ret);
-	}
-        
-    }
-    // GOOFIT_TRACE("sumIntegral={}", sumIntegral);
-
-    // printf("normalize A2/#evts , B2/#evts: %.5g, %.5g\n",thrust::get<0>(sumIntegral)/_nAcc_Norm_Events,
-    // thrust::get<1>(sumIntegral)/_nAcc_Norm_Events);
     fptype tau     = parametersList[0];
     fptype xmixing = parametersList[1];
     fptype ymixing = parametersList[2];
-
-    ret = resolution->normalization(thrust::get<0>(sumIntegral),
-				    thrust::get<1>(sumIntegral),
-				    thrust::get<2>(sumIntegral),
-				    thrust::get<3>(sumIntegral),
-				    tau,
-				    xmixing,
-				    ymixing);
+	
+    if(specialIntegral){
+      const double uniformNorm = 1.;
+      //const double uniformNorm = 3.26 - 0.18;
+      ret = thrust::get<0>(sumIntegral) * uniformNorm;
+        
+    }
+    else{
+      ret = resolution->normalization(thrust::get<0>(sumIntegral),
+              thrust::get<1>(sumIntegral),
+              thrust::get<2>(sumIntegral),
+              thrust::get<3>(sumIntegral),
+              tau,
+              xmixing,
+              ymixing);
+        }
+        // MCevents is the number of normalization events.
+        
+        
 
     GOOFIT_DEBUG("Norm value before divide: {:.20f}", ret);
 
     // _nAcc_Norm_Events is the number of normalization events.
     ret /= _nAcc_Norm_Events;
+    if(specialIntegral){
+      printf("normalizatio value:%.7g ",ret);
+    }
   }
 
   host_normalizations[normalIdx + 1] = 1.0 / ret;
   cachedNormalization                = 1.0 / ret;
    
-  GOOFIT_DEBUG("Norm value: {:.20f}\n", ret);
 
   return ret;
 }
