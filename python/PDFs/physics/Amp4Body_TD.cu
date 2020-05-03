@@ -22,23 +22,26 @@ void init_Amp4Body_TD(py::module &m) {
                      DecayInfo4t,
                      MixingTimeResolution *,
                      GooPdf *,
-                     Observable *,
+					 Observable *,
+					 long,
                      unsigned int>(),
             "n"_a,
             "observables"_a,
             "decay"_a,
             "r"_a,
             "eff"_a,
-            "mistag"_a       = nullptr,
+			"mistag"_a       = nullptr,
+			"nromSeed"_a = 0,
             "MCeventsNorm"_a = 5e6,
             py::keep_alive<1, 4>(),
             py::keep_alive<1, 5>(),
-            py::keep_alive<1, 6>(),
-            py::keep_alive<1, 7>())
+			py::keep_alive<1, 6>(),
+			py::keep_alive<1, 7>(),
+            py::keep_alive<1, 8>())
 
         .def("set_special_integral", &Amp4Body_TD::set_special_integral,"special"_a)
         .def("setDataSize", &Amp4Body_TD::setDataSize, "dataSize"_a, "evtSize"_a)
-        .def("getMCevents",&Amp4Body_TD::getMCevents)
+        .def("getNumAccNormEvents",&Amp4Body_TD::getNumAccNormEvents)
         .def("setMaxWeight",&Amp4Body_TD::setMaxWeight,"wmax"_a)
         .def("set_norm_dtime",[](Amp4Body_TD &self,py::array_t<fptype> pydtime){
 	    mcbooster::RealVector_h norm_dtime_h = self.get_norm_dtime();
